@@ -209,7 +209,7 @@
             }
             
             currentUser = { role: selectedRole, name: userName, icu: userICU };
-            currentPage = 1; // 每次登入重置頁碼
+            currentPage = 1; 
             loginPage.style.display = 'none';
             dashboardPage.style.display = 'block';
             userDisplay.textContent = `歡迎，${currentUser.name}`;
@@ -244,7 +244,6 @@
                 
                 const resolvedStatuses = ['已簽入', '拒絕'];
                 if (resolvedStatuses.includes(req.status)) {
-                    // 檢查 updatedTime 是否存在，否則使用 requestTime
                     const resolvedTime = req.updatedTime ? req.updatedTime.seconds : req.requestTime.seconds;
                     return (nowInSeconds - resolvedTime) < twentyFourHoursInSeconds;
                 }
@@ -268,7 +267,7 @@
                     <thead><tr><th>申請時間</th><th>病人(病歷號)</th><th>申請醫師</th><th>申請狀況 (目標ICU/順位)</th><th>整體狀態</th></tr></thead>
                     <tbody>`;
                 paginatedRequests.forEach(req => {
-                    const displayStatus = (Object.values(req.ranking).some(rank => rank !== null) && req.status === '評估中') ? '等床' : req.status;
+                    const displayStatus = (Object.values(req.ranking).some(rank => rank !== null && rank !== 'rejected') && req.status === '評估中') ? '等床' : req.status;
                     html += `
                         <tr>
                             <td>${new Date(req.requestTime.seconds * 1000).toLocaleString()}</td>
@@ -293,9 +292,13 @@
 
         function renderSpecialistView() {
             const specialistICU = currentUser.icu;
-            const activeStatuses = ['評估中', '等床'];
-            const icuRequests = requests.filter(r => r.targetICU.includes(specialistICU) && activeStatuses.includes(r.status))
-                                        .sort((a,b) => (a.ranking[specialistICU] || 99) - (b.ranking[specialistICU] || 99));
+            const icuRequests = requests.filter(r => 
+                r.targetICU.includes(specialistICU) && 
+                r.status !== '已簽入' && 
+                r.status !== '拒絕' &&
+                r.ranking[specialistICU] !== 'rejected'
+            ).sort((a,b) => (a.ranking[specialistICU] || 99) - (b.ranking[specialistICU] || 99));
+            
             let html = `
                 <div class="section-header">
                     <h2 class="section-title">${specialistICU} 待處理清單</h2>
@@ -314,7 +317,7 @@
 
                 html += `
                 <table class="data-table">
-                    <thead><tr><th>${specialistICU}順位</th><th>申請時間</th><th>病人(病歷號)</th><th>申請醫師</th><th>主訴</th><th>狀態</th><th>備註</th></tr></thead>
+                    <thead><tr><th>${specialistICU}順位</th><th>申請時間</th><th>病人(病歷號)</th><th>申請醫師</th><th>主訴</th><th>醫師決策</th><th>備註</th></tr></thead>
                     <tbody>`;
                 paginatedRequests.forEach(req => {
                     html += `
@@ -326,10 +329,9 @@
                             <td>${req.reason}</td>
                             <td>
                                 <select data-id="${req.id}" class="status-select">
-                                    <option value="評估中" ${req.status === '評估中' ? 'selected' : ''}>評估中</option>
-                                    <option value="等床" ${req.status === '等床' ? 'selected' : ''}>等床</option>
-                                    <option value="已簽入" ${req.status === '已簽入' ? 'selected' : ''}>已簽入</option>
-                                    <option value="拒絕" ${req.status === '拒絕' ? 'selected' : ''}>拒絕</option>
+                                    <option value="wait" ${req.status !== '評估中' ? 'selected' : ''}>評估/排床</option>
+                                    <option value="admit">簽入此ICU</option>
+                                    <option value="reject">拒絕此病人</option>
                                 </select>
                             </td>
                             <td><input type="text" placeholder="內部溝通備註..."></td>
@@ -350,6 +352,7 @@
         function formatRankings(ranking, targetICUs) {
             return targetICUs.map(icu => {
                 const rank = ranking[icu];
+                if (rank === 'rejected') return `<span style="color:red;">${icu}: 拒絕</span>`;
                 return rank ? `${icu}: ${rank}` : `${icu}: 未排`;
             }).join('<br>');
         }
@@ -393,41 +396,44 @@
             const batch = writeBatch(db);
             let patientsToRank = [];
 
-            rows.forEach(row => {
+            for (const row of rows) {
                 const id = row.querySelector('.priority-input').dataset.id;
                 const newRankInput = row.querySelector('.priority-input').value;
-                const newStatus = row.querySelector('.status-select').value;
+                const action = row.querySelector('.status-select').value;
                 const request = requests.find(r => r.id === id);
 
-                if (request) {
-                    let updatedData = {};
-                    if(request.status !== newStatus) {
-                        updatedData.status = newStatus;
-                        // 當狀態被更新為已簽入或拒絕時，記錄更新時間
-                        if (newStatus === '已簽入' || newStatus === '拒絕') {
-                            updatedData.updatedTime = serverTimestamp();
-                        }
-                    }
+                if (!request) continue;
+                
+                let updatedData = {};
 
-                    const activeStatuses = ['評估中', '等床'];
-                    if (activeStatuses.includes(newStatus)) {
-                         if (newStatus === '評估中' && newRankInput) {
-                            updatedData.status = '等床';
-                         }
-                         patientsToRank.push({ id: request.id, tempRank: newRankInput ? parseInt(newRankInput) : Infinity });
-                    } else {
-                        updatedData[`ranking.${specialistICU}`] = null;
+                if (action === 'reject') {
+                    updatedData[`ranking.${specialistICU}`] = 'rejected';
+                    updatedData.updatedTime = serverTimestamp();
+
+                    // Check if this rejection makes all target ICUs rejected
+                    const tempRanking = { ...request.ranking, [specialistICU]: 'rejected' };
+                    const allRejected = request.targetICU.every(icu => tempRanking[icu] === 'rejected');
+                    if (allRejected) {
+                        updatedData.status = '拒絕';
                     }
-                    
-                    if (Object.keys(updatedData).length > 0) {
-                        const docRef = doc(db, "requests", id);
-                        batch.update(docRef, updatedData);
+                } else if (action === 'admit') {
+                    updatedData.status = '已簽入';
+                    updatedData.updatedTime = serverTimestamp();
+                    updatedData[`ranking.${specialistICU}`] = null;
+                } else { // action is 'wait'
+                    if (request.status === '評估中') {
+                        updatedData.status = '等床';
                     }
+                    patientsToRank.push({ id: request.id, tempRank: newRankInput ? parseInt(newRankInput) : Infinity });
                 }
-            });
+                
+                if (Object.keys(updatedData).length > 0) {
+                    const docRef = doc(db, "requests", id);
+                    batch.update(docRef, updatedData);
+                }
+            }
 
             patientsToRank.sort((a, b) => a.tempRank - b.tempRank);
-
             patientsToRank.forEach((p, index) => {
                 const docRef = doc(db, "requests", p.id);
                 batch.update(docRef, { [`ranking.${specialistICU}`]: index + 1 });
@@ -477,7 +483,7 @@
             snapshot.forEach(doc => {
                 requests.push({ ...doc.data(), id: doc.id });
             });
-            console.log("從 Firebase 即時更新資料:", requests);
+            // console.log("從 Firebase 即時更新資料:", requests);
             if (currentUser) {
                 renderDashboard();
             }
