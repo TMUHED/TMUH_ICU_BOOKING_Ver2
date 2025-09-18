@@ -10,15 +10,13 @@
         .container { width: 100%; max-width: 1200px; margin: 20px; padding: 20px; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         #login-page { max-width: 400px; margin: 50px auto; text-align: center; padding: 30px; border: 1px solid #ddd; border-radius: 8px; }
         #login-page h1 { font-size: 1.5em; color: #005a9c; }
-        .login-form select, .login-form input { width: 90%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; box-sizing: border-box; }
-        .login-form .btn { margin-top: 10px; }
+        .login-form select, .login-form input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; box-sizing: border-box; }
+        .login-form .btn { margin-top: 10px; width: 100%; }
         .btn { padding: 12px 20px; border: none; border-radius: 4px; font-size: 1em; cursor: pointer; transition: background-color 0.3s; }
         .btn-primary { background-color: #007bff; color: white; }
         .btn-primary:hover { background-color: #0056b3; }
         .btn-secondary { background-color: #6c757d; color: white; }
         .btn-secondary:hover { background-color: #5a6268; }
-        .btn-danger { background-color: #dc3545; color: white; }
-        .btn-danger:hover { background-color: #c82333; }
         #dashboard-page { display: none; }
         .dashboard-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 20px; }
         .dashboard-header h1 { margin: 0; font-size: 1.8em; color: #005a9c; }
@@ -55,6 +53,9 @@
         .checkbox-group { display: flex; align-items: center; gap: 20px; }
         .checkbox-group span { display: flex; align-items: center; }
         .checkbox-group input[type="checkbox"] { width: auto; margin-right: 5px; }
+        .pagination-controls { text-align: center; margin-top: 20px; }
+        .pagination-controls .page-btn { margin: 0 5px; padding: 8px 12px; background-color: #f0f0f0; border: 1px solid #ddd; cursor: pointer; }
+        .pagination-controls .page-btn.active { background-color: #007bff; color: white; border-color: #007bff; }
     </style>
 </head>
 <body>
@@ -75,7 +76,7 @@
                     <option value="SICU">SICU 專責</option>
                     <option value="MICU">MICU 專責</option>
                 </select>
-                <button id="login-btn" class="btn btn-primary" style="width: 90%;">登入</button>
+                <button id="login-btn" class="btn btn-primary">登入</button>
             </div>
         </div>
 
@@ -141,9 +142,6 @@
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
         // 2. Firebase 設定
-        // =================================================================================
-        // 已將您提供的 firebaseConfig 更新於此
-        // =================================================================================
         const firebaseConfig = {
             apiKey: "AIzaSyBsfrk8702YJiChWaY5guHKd30kQKUbnos",
             authDomain: "tmuh-icu-booking.firebaseapp.com",
@@ -152,8 +150,7 @@
             messagingSenderId: "661469690200",
             appId: "1:661469690200:web:ca88d1fc41051e06e68d2d"
         };
-        // =================================================================================
-
+        
         // 3. 初始化 Firebase
         let app, db, auth, requestsCol;
         try {
@@ -162,13 +159,10 @@
             auth = getAuth(app);
             requestsCol = collection(db, "requests");
             
-            // 4. 匿名登入 (讓每個使用者都有一個獨特ID)
             await signInAnonymously(auth);
-            console.log("Firebase 匿名登入成功，使用者 ID:", auth.currentUser.uid);
-
+            console.log("Firebase 匿名登入成功");
         } catch (e) {
             console.error("Firebase 初始化失敗:", e);
-            // 修正：提供更明確的錯誤提示
             if (e.code === 'auth/configuration-not-found') {
                 alert("Firebase 初始化失敗！\n\n錯誤原因：您尚未啟用「匿名登入」服務。\n\n請前往 Firebase 控制台 -> Authentication -> Sign-in method -> 啟用「匿名 (Anonymous)」。");
             } else {
@@ -176,10 +170,10 @@
             }
         }
 
-
         // --- 全域變數 ---
         let requests = [];
         let currentUser = null;
+        let currentPage = 1;
 
         // --- DOM 元素 ---
         const loginPage = document.getElementById('login-page');
@@ -197,7 +191,7 @@
         const cancelBookingBtn = document.getElementById('cancel-booking-btn');
         const bookingForm = document.getElementById('booking-form');
 
-        // --- 功能函式 (Firebase 版本) ---
+        // --- 功能函式 ---
         function handleLogin() {
             const selectedRole = roleSelector.value;
             let userName = '';
@@ -215,7 +209,7 @@
             }
             
             currentUser = { role: selectedRole, name: userName, icu: userICU };
-            
+            currentPage = 1; // 每次登入重置頁碼
             loginPage.style.display = 'none';
             dashboardPage.style.display = 'block';
             userDisplay.textContent = `歡迎，${currentUser.name}`;
@@ -241,16 +235,39 @@
         }
         
         function renderBookerView() {
-            const pendingRequests = requests.filter(r => r.status !== '已簽入').sort((a, b) => b.requestTime.seconds - a.requestTime.seconds);
+            const nowInSeconds = Date.now() / 1000;
+            const twentyFourHoursInSeconds = 24 * 60 * 60;
+            
+            const displayableRequests = requests.filter(req => {
+                const activeStatuses = ['評估中', '等床'];
+                if (activeStatuses.includes(req.status)) return true;
+                
+                const resolvedStatuses = ['已簽入', '拒絕'];
+                if (resolvedStatuses.includes(req.status)) {
+                    // 檢查 updatedTime 是否存在，否則使用 requestTime
+                    const resolvedTime = req.updatedTime ? req.updatedTime.seconds : req.requestTime.seconds;
+                    return (nowInSeconds - resolvedTime) < twentyFourHoursInSeconds;
+                }
+                return false;
+            }).sort((a, b) => b.requestTime.seconds - a.requestTime.seconds);
+
             let html = `<div class="section-header"><h2 class="section-title">全院ICU訂床總覽</h2></div>`;
-            if (pendingRequests.length === 0) {
+
+            if (displayableRequests.length === 0) {
                 html += `<p style="text-align:center; color: #666; margin-top: 20px;">目前沒有任何訂床申請。</p>`;
             } else {
+                 const itemsPerPage = 10;
+                 const totalPages = Math.ceil(displayableRequests.length / itemsPerPage);
+                 if (currentPage > totalPages) currentPage = totalPages > 0 ? totalPages : 1;
+
+                 const startIndex = (currentPage - 1) * itemsPerPage;
+                 const paginatedRequests = displayableRequests.slice(startIndex, startIndex + itemsPerPage);
+
                 html += `
                 <table class="data-table">
                     <thead><tr><th>申請時間</th><th>病人(病歷號)</th><th>申請醫師</th><th>申請狀況 (目標ICU/順位)</th><th>整體狀態</th></tr></thead>
                     <tbody>`;
-                pendingRequests.forEach(req => {
+                paginatedRequests.forEach(req => {
                     const displayStatus = (Object.values(req.ranking).some(rank => rank !== null) && req.status === '評估中') ? '等床' : req.status;
                     html += `
                         <tr>
@@ -262,6 +279,14 @@
                         </tr>`;
                 });
                 html += `</tbody></table>`;
+
+                if (totalPages > 1) {
+                    html += `<div class="pagination-controls">`;
+                    for (let i = 1; i <= totalPages; i++) {
+                        html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
+                    }
+                    html += `</div>`;
+                }
             }
             dynamicContent.innerHTML = html;
         }
@@ -276,14 +301,22 @@
                     <h2 class="section-title">${specialistICU} 待處理清單</h2>
                     <button class="btn btn-primary" id="save-changes-btn">儲存更動</button>
                 </div>`;
+            
             if (icuRequests.length === 0) {
                 html += `<p style="text-align:center; color: #666; margin-top: 20px;">目前沒有任何待處理的訂床申請。</p>`;
             } else {
+                const itemsPerPage = 10;
+                const totalPages = Math.ceil(icuRequests.length / itemsPerPage);
+                if (currentPage > totalPages) currentPage = totalPages > 0 ? totalPages : 1;
+
+                const startIndex = (currentPage - 1) * itemsPerPage;
+                const paginatedRequests = icuRequests.slice(startIndex, startIndex + itemsPerPage);
+
                 html += `
                 <table class="data-table">
                     <thead><tr><th>${specialistICU}順位</th><th>申請時間</th><th>病人(病歷號)</th><th>申請醫師</th><th>主訴</th><th>狀態</th><th>備註</th></tr></thead>
                     <tbody>`;
-                icuRequests.forEach(req => {
+                paginatedRequests.forEach(req => {
                     html += `
                         <tr>
                             <td><input type="number" value="${req.ranking[specialistICU] || ''}" min="1" data-id="${req.id}" class="priority-input"></td>
@@ -303,6 +336,13 @@
                         </tr>`;
                 });
                 html += `</tbody></table>`;
+                if (totalPages > 1) {
+                    html += `<div class="pagination-controls">`;
+                    for (let i = 1; i <= totalPages; i++) {
+                        html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
+                    }
+                    html += `</div>`;
+                }
             }
             dynamicContent.innerHTML = html;
         }
@@ -332,7 +372,7 @@
                 requester: currentUser.name, reason: document.getElementById('reason').value,
                 targetICU: checkedIcus, status: '評估中',
                 ranking: { EICU: null, SICU: null, MICU: null },
-                requestTime: serverTimestamp() // 使用 Firebase 伺服器時間
+                requestTime: serverTimestamp()
             };
 
             try {
@@ -348,12 +388,11 @@
         async function handleSaveChanges() {
             const specialistICU = currentUser.icu;
             const rows = dynamicContent.querySelectorAll('table tbody tr');
-            if(rows.length === 0) return; // 如果沒有資料，直接返回
+            if(rows.length === 0) return;
 
             const batch = writeBatch(db);
             let patientsToRank = [];
 
-            // 步驟一：從畫面讀取所有使用者的輸入
             rows.forEach(row => {
                 const id = row.querySelector('.priority-input').dataset.id;
                 const newRankInput = row.querySelector('.priority-input').value;
@@ -362,13 +401,14 @@
 
                 if (request) {
                     let updatedData = {};
-                    
-                    // 檢查狀態是否有變動
                     if(request.status !== newStatus) {
                         updatedData.status = newStatus;
+                        // 當狀態被更新為已簽入或拒絕時，記錄更新時間
+                        if (newStatus === '已簽入' || newStatus === '拒絕') {
+                            updatedData.updatedTime = serverTimestamp();
+                        }
                     }
 
-                    // 篩選出需要重新排序的病人
                     const activeStatuses = ['評估中', '等床'];
                     if (activeStatuses.includes(newStatus)) {
                          if (newStatus === '評估中' && newRankInput) {
@@ -376,11 +416,9 @@
                          }
                          patientsToRank.push({ id: request.id, tempRank: newRankInput ? parseInt(newRankInput) : Infinity });
                     } else {
-                        // 對於 '已簽入', '拒絕' 的病人，清除他們在此ICU的順位
                         updatedData[`ranking.${specialistICU}`] = null;
                     }
                     
-                    // 如果有任何變動，才加入 batch
                     if (Object.keys(updatedData).length > 0) {
                         const docRef = doc(db, "requests", id);
                         batch.update(docRef, updatedData);
@@ -388,10 +426,8 @@
                 }
             });
 
-            // 步驟二：對需要排序的病人列表，根據使用者輸入的數字進行排序
             patientsToRank.sort((a, b) => a.tempRank - b.tempRank);
 
-            // 步驟三：將重新賦予的 1, 2, 3... 的連續順位加入 batch
             patientsToRank.forEach((p, index) => {
                 const docRef = doc(db, "requests", p.id);
                 batch.update(docRef, { [`ranking.${specialistICU}`]: index + 1 });
@@ -425,10 +461,13 @@
         cancelBookingBtn.addEventListener('click', () => { bookingModal.style.display = 'none'; });
         window.addEventListener('click', (event) => { if (event.target == bookingModal) { bookingModal.style.display = 'none'; } });
         bookingForm.addEventListener('submit', handleNewBooking);
-        
+
         dynamicContent.addEventListener('click', (event) => {
             if (event.target.id === 'save-changes-btn') {
                 handleSaveChanges();
+            } else if (event.target.classList.contains('page-btn')) {
+                currentPage = parseInt(event.target.dataset.page);
+                renderDashboard();
             }
         });
         
