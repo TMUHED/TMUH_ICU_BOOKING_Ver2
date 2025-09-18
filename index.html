@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMUH 加護病房智慧訂床系統 (最終修正版)</title>
+    <style>
+        /* 樣式與前版相同，此處省略以保持簡潔 */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; background-color: #f4f7fa; color: #333; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { width: 100%; max-width: 1200px; margin: 20px; padding: 20px; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        #login-page { max-width: 400px; margin: 50px auto; text-align: center; padding: 30px; border: 1px solid #ddd; border-radius: 8px; }
+        #login-page h1 { font-size: 1.5em; color: #005a9c; }
+        .login-form select, .login-form input { width: 90%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; box-sizing: border-box; }
+        .login-form .btn { margin-top: 10px; }
+        .btn { padding: 12px 20px; border: none; border-radius: 4px; font-size: 1em; cursor: pointer; transition: background-color 0.3s; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-primary:hover { background-color: #0056b3; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+        .btn-secondary:hover { background-color: #5a6268; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-danger:hover { background-color: #c82333; }
+        #dashboard-page { display: none; }
+        .dashboard-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 20px; }
+        .dashboard-header h1 { margin: 0; font-size: 1.8em; color: #005a9c; }
+        .user-info .btn { margin-left: 15px; }
+        .btn-new { background-color: #28a745; color: white; }
+        .btn-new:hover { background-color: #218838; }
+        .btn-logout { background-color: #6c757d; color: white; }
+        .btn-logout:hover { background-color: #5a6268; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; }
+        .section-title { font-size: 1.3em; color: #333; margin-top: 25px; margin-bottom: 15px; border-left: 4px solid #007bff; padding-left: 10px; }
+        .status-grid { width: 100%; border-collapse: collapse; text-align: center; }
+        .status-grid th, .status-grid td { padding: 12px; border: 1px solid #ddd; }
+        .status-grid th { background-color: #f2f2f2; }
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .data-table th, .data-table td { padding: 12px; border: 1px solid #ddd; text-align: left; vertical-align: middle; }
+        .data-table th { background-color: #f8f9fa; }
+        .data-table tbody tr:nth-child(even) { background-color: #f2f2f2; }
+        .data-table input[type="number"], .data-table select, .data-table input[type="text"] { width: 90%; padding: 5px; border-radius: 4px; border: 1px solid #ccc; }
+        .data-table input[type="number"] { max-width: 60px; text-align: center;}
+        .status-tag { padding: 5px 10px; border-radius: 12px; color: white; font-size: 0.9em; font-weight: bold; }
+        .status-waiting { background-color: #ffc107; color: #333; }
+        .status-admitted { background-color: #28a745; }
+        .status-evaluating { background-color: #17a2b8; }
+        .status-rejected { background-color: #dc3545; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: #fefefe; margin: 10% auto; padding: 25px; border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 8px; position: relative; }
+        .close-btn { color: #aaa; position: absolute; top: 10px; right: 20px; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .modal-content h2 { margin-top: 0; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select, .form-group textarea { width: 95%; padding: 10px; border-radius: 4px; border: 1px solid #ccc; }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+        .form-actions { text-align: right; margin-top: 20px; }
+        .checkbox-group { display: flex; align-items: center; gap: 20px; }
+        .checkbox-group span { display: flex; align-items: center; }
+        .checkbox-group input[type="checkbox"] { width: auto; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- 登入頁面 -->
+        <div id="login-page">
+            <img src="https://www.tmuh.org.tw/images/logo.jpg" alt="TMUH Logo" style="width: 200px; margin-bottom: 20px;">
+            <h1>加護病房智慧訂床系統</h1>
+            <div class="login-form">
+                <select id="role-selector">
+                    <option value="booker">訂床者</option>
+                    <option value="specialist">專責醫師</option>
+                </select>
+                <input type="text" id="booker-name" placeholder="請輸入姓名與科別 (例如: 陳醫師/胸腔內科)">
+                <select id="icu-selector" style="display: none;">
+                    <option value="EICU">EICU 專責</option>
+                    <option value="SICU">SICU 專責</option>
+                    <option value="MICU">MICU 專責</option>
+                </select>
+                <button id="login-btn" class="btn btn-primary" style="width: 90%;">登入</button>
+            </div>
+        </div>
+
+        <!-- 儀表板頁面 -->
+        <div id="dashboard-page">
+             <header class="dashboard-header">
+                <h1>總覽儀表板</h1>
+                <div class="user-info">
+                    <span id="user-display"></span>
+                    <button id="new-booking-btn" class="btn btn-new">+ 新增訂床申請</button>
+                    <button id="logout-btn" class="btn btn-logout">登出</button>
+                </div>
+            </header>
+            
+            <main>
+                <h2 class="section-title">全院ICU即時床位狀態</h2>
+                <table class="status-grid">
+                     <thead>
+                        <tr><th>ICU</th><th>總床數</th><th>佔床數</th><th>空床數</th><th>等待人數</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>EICU</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+                        <tr><td>SICU</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+                        <tr><td>MICU</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+                    </tbody>
+                </table>
+                 <p style="text-align:center; font-size: 0.9em; color: #888;">（此處資訊未來將串接醫院 API 即時更新）</p>
+                <div id="dynamic-content"></div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 新增訂床申請 Modal -->
+    <div id="booking-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <h2>新增加護病房訂床申請</h2>
+            <form id="booking-form">
+                <div class="form-group"><label for="mrn">病人病歷號</label><input type="text" id="mrn" required></div>
+                <div class="form-group"><label for="patient-name">病人姓名</label><input type="text" id="patient-name" required></div>
+                <div class="form-group"><label for="reason">申請入ICU主診斷/原因</label><textarea id="reason" required></textarea></div>
+                <div class="form-group">
+                    <label>目標 ICU (可複選)</label>
+                    <div class="checkbox-group">
+                        <span><input type="checkbox" id="icu-eicu" value="EICU"> <label for="icu-eicu">EICU</label></span>
+                        <span><input type="checkbox" id="icu-sicu" value="SICU"> <label for="icu-sicu">SICU</label></span>
+                        <span><input type="checkbox" id="icu-micu" value="MICU"> <label for="icu-micu">MICU</label></span>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="cancel-booking-btn">取消</button>
+                    <button type="submit" class="btn btn-primary">送出申請</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        // 1. 匯入 Firebase 模組
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, addDoc, doc, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
+
+        // 2. Firebase 設定
+        // =================================================================================
+        // 已將您提供的 firebaseConfig 更新於此
+        // =================================================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyBsfrk8702YJiChWaY5guHKd30kQKUbnos",
+            authDomain: "tmuh-icu-booking.firebaseapp.com",
+            projectId: "tmuh-icu-booking",
+            storageBucket: "tmuh-icu-booking.appspot.com",
+            messagingSenderId: "661469690200",
+            appId: "1:661469690200:web:ca88d1fc41051e06e68d2d"
+        };
+        // =================================================================================
+
+        // 3. 初始化 Firebase
+        let app, db, auth, requestsCol;
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            requestsCol = collection(db, "requests");
+            
+            // 4. 匿名登入 (讓每個使用者都有一個獨特ID)
+            await signInAnonymously(auth);
+            console.log("Firebase 匿名登入成功，使用者 ID:", auth.currentUser.uid);
+
+        } catch (e) {
+            console.error("Firebase 初始化失敗:", e);
+            // 修正：提供更明確的錯誤提示
+            if (e.code === 'auth/configuration-not-found') {
+                alert("Firebase 初始化失敗！\n\n錯誤原因：您尚未啟用「匿名登入」服務。\n\n請前往 Firebase 控制台 -> Authentication -> Sign-in method -> 啟用「匿名 (Anonymous)」。");
+            } else {
+                alert("Firebase 初始化失敗！請檢查您的 firebaseConfig 是否已正確貼上。");
+            }
+        }
+
+
+        // --- 全域變數 ---
+        let requests = [];
+        let currentUser = null;
+
+        // --- DOM 元素 ---
+        const loginPage = document.getElementById('login-page');
+        const dashboardPage = document.getElementById('dashboard-page');
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const roleSelector = document.getElementById('role-selector');
+        const bookerNameInput = document.getElementById('booker-name');
+        const icuSelector = document.getElementById('icu-selector');
+        const userDisplay = document.getElementById('user-display');
+        const dynamicContent = document.getElementById('dynamic-content');
+        const newBookingBtn = document.getElementById('new-booking-btn');
+        const bookingModal = document.getElementById('booking-modal');
+        const closeModalBtn = document.querySelector('.close-btn');
+        const cancelBookingBtn = document.getElementById('cancel-booking-btn');
+        const bookingForm = document.getElementById('booking-form');
+
+        // --- 功能函式 (Firebase 版本) ---
+        function handleLogin() {
+            const selectedRole = roleSelector.value;
+            let userName = '';
+            let userICU = null;
+
+            if (selectedRole === 'booker') {
+                if (bookerNameInput.value.trim() === '') {
+                    alert('請輸入您的姓名與科別');
+                    return;
+                }
+                userName = bookerNameInput.value.trim();
+            } else {
+                userICU = icuSelector.value;
+                userName = `${userICU} 專責醫師`;
+            }
+            
+            currentUser = { role: selectedRole, name: userName, icu: userICU };
+            
+            loginPage.style.display = 'none';
+            dashboardPage.style.display = 'block';
+            userDisplay.textContent = `歡迎，${currentUser.name}`;
+            renderDashboard();
+        }
+
+        function handleLogout() {
+            currentUser = null;
+            loginPage.style.display = 'block';
+            dashboardPage.style.display = 'none';
+        }
+        
+        function renderDashboard() {
+            if (!currentUser) return;
+            
+            if (currentUser.role === 'booker') {
+                newBookingBtn.style.display = 'inline-block';
+                renderBookerView();
+            } else {
+                newBookingBtn.style.display = 'none';
+                renderSpecialistView();
+            }
+        }
+        
+        function renderBookerView() {
+            const pendingRequests = requests.filter(r => r.status !== '已簽入').sort((a, b) => b.requestTime.seconds - a.requestTime.seconds);
+            let html = `<div class="section-header"><h2 class="section-title">全院ICU訂床總覽</h2></div>`;
+            if (pendingRequests.length === 0) {
+                html += `<p style="text-align:center; color: #666; margin-top: 20px;">目前沒有任何訂床申請。</p>`;
+            } else {
+                html += `
+                <table class="data-table">
+                    <thead><tr><th>申請時間</th><th>病人(病歷號)</th><th>申請醫師</th><th>申請狀況 (目標ICU/順位)</th><th>整體狀態</th></tr></thead>
+                    <tbody>`;
+                pendingRequests.forEach(req => {
+                    const displayStatus = (Object.values(req.ranking).some(rank => rank !== null) && req.status === '評估中') ? '等床' : req.status;
+                    html += `
+                        <tr>
+                            <td>${new Date(req.requestTime.seconds * 1000).toLocaleString()}</td>
+                            <td>${req.name} (${req.mrn})</td>
+                            <td>${req.requester}</td>
+                            <td>${formatRankings(req.ranking, req.targetICU)}</td>
+                            <td><span class="status-tag ${getStatusClass(displayStatus)}">${displayStatus}</span></td>
+                        </tr>`;
+                });
+                html += `</tbody></table>`;
+            }
+            dynamicContent.innerHTML = html;
+        }
+
+        function renderSpecialistView() {
+            const specialistICU = currentUser.icu;
+            const activeStatuses = ['評估中', '等床'];
+            const icuRequests = requests.filter(r => r.targetICU.includes(specialistICU) && activeStatuses.includes(r.status))
+                                        .sort((a,b) => (a.ranking[specialistICU] || 99) - (b.ranking[specialistICU] || 99));
+            let html = `
+                <div class="section-header">
+                    <h2 class="section-title">${specialistICU} 待處理清單</h2>
+                    <button class="btn btn-primary" id="save-changes-btn">儲存更動</button>
+                </div>`;
+            if (icuRequests.length === 0) {
+                html += `<p style="text-align:center; color: #666; margin-top: 20px;">目前沒有任何待處理的訂床申請。</p>`;
+            } else {
+                html += `
+                <table class="data-table">
+                    <thead><tr><th>${specialistICU}順位</th><th>申請時間</th><th>病人(病歷號)</th><th>申請醫師</th><th>主訴</th><th>狀態</th><th>備註</th></tr></thead>
+                    <tbody>`;
+                icuRequests.forEach(req => {
+                    html += `
+                        <tr>
+                            <td><input type="number" value="${req.ranking[specialistICU] || ''}" min="1" data-id="${req.id}" class="priority-input"></td>
+                            <td>${new Date(req.requestTime.seconds * 1000).toLocaleString()}</td>
+                            <td>${req.name} (${req.mrn})</td>
+                            <td>${req.requester}</td>
+                            <td>${req.reason}</td>
+                            <td>
+                                <select data-id="${req.id}" class="status-select">
+                                    <option value="評估中" ${req.status === '評估中' ? 'selected' : ''}>評估中</option>
+                                    <option value="等床" ${req.status === '等床' ? 'selected' : ''}>等床</option>
+                                    <option value="已簽入" ${req.status === '已簽入' ? 'selected' : ''}>已簽入</option>
+                                    <option value="拒絕" ${req.status === '拒絕' ? 'selected' : ''}>拒絕</option>
+                                </select>
+                            </td>
+                            <td><input type="text" placeholder="內部溝通備註..."></td>
+                        </tr>`;
+                });
+                html += `</tbody></table>`;
+            }
+            dynamicContent.innerHTML = html;
+        }
+
+        function formatRankings(ranking, targetICUs) {
+            return targetICUs.map(icu => {
+                const rank = ranking[icu];
+                return rank ? `${icu}: ${rank}` : `${icu}: 未排`;
+            }).join('<br>');
+        }
+        
+        function getStatusClass(status) {
+            switch(status) {
+                case '等床': return 'status-waiting'; case '已簽入': return 'status-admitted';
+                case '評估中': return 'status-evaluating'; case '拒絕': return 'status-rejected';
+                default: return '';
+            }
+        }
+        
+        async function handleNewBooking(event) {
+            event.preventDefault();
+            const checkedIcus = Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+            if (checkedIcus.length === 0) { alert('請至少選擇一個目標ICU'); return; }
+            
+            const newRequest = {
+                mrn: document.getElementById('mrn').value, name: document.getElementById('patient-name').value,
+                requester: currentUser.name, reason: document.getElementById('reason').value,
+                targetICU: checkedIcus, status: '評估中',
+                ranking: { EICU: null, SICU: null, MICU: null },
+                requestTime: serverTimestamp() // 使用 Firebase 伺服器時間
+            };
+
+            try {
+                await addDoc(requestsCol, newRequest);
+                bookingModal.style.display = 'none';
+                bookingForm.reset();
+            } catch (e) {
+                console.error("新增文件失敗: ", e);
+                alert("新增訂床申請失敗，請稍後再試。");
+            }
+        }
+
+        async function handleSaveChanges() {
+            const specialistICU = currentUser.icu;
+            const rows = dynamicContent.querySelectorAll('table tbody tr');
+            if(rows.length === 0) return; // 如果沒有資料，直接返回
+
+            const batch = writeBatch(db);
+            let patientsToRank = [];
+
+            // 步驟一：從畫面讀取所有使用者的輸入
+            rows.forEach(row => {
+                const id = row.querySelector('.priority-input').dataset.id;
+                const newRankInput = row.querySelector('.priority-input').value;
+                const newStatus = row.querySelector('.status-select').value;
+                const request = requests.find(r => r.id === id);
+
+                if (request) {
+                    let updatedData = {};
+                    
+                    // 檢查狀態是否有變動
+                    if(request.status !== newStatus) {
+                        updatedData.status = newStatus;
+                    }
+
+                    // 篩選出需要重新排序的病人
+                    const activeStatuses = ['評估中', '等床'];
+                    if (activeStatuses.includes(newStatus)) {
+                         if (newStatus === '評估中' && newRankInput) {
+                            updatedData.status = '等床';
+                         }
+                         patientsToRank.push({ id: request.id, tempRank: newRankInput ? parseInt(newRankInput) : Infinity });
+                    } else {
+                        // 對於 '已簽入', '拒絕' 的病人，清除他們在此ICU的順位
+                        updatedData[`ranking.${specialistICU}`] = null;
+                    }
+                    
+                    // 如果有任何變動，才加入 batch
+                    if (Object.keys(updatedData).length > 0) {
+                        const docRef = doc(db, "requests", id);
+                        batch.update(docRef, updatedData);
+                    }
+                }
+            });
+
+            // 步驟二：對需要排序的病人列表，根據使用者輸入的數字進行排序
+            patientsToRank.sort((a, b) => a.tempRank - b.tempRank);
+
+            // 步驟三：將重新賦予的 1, 2, 3... 的連續順位加入 batch
+            patientsToRank.forEach((p, index) => {
+                const docRef = doc(db, "requests", p.id);
+                batch.update(docRef, { [`ranking.${specialistICU}`]: index + 1 });
+            });
+            
+            try {
+                await batch.commit();
+                alert('變更已儲存！');
+            } catch (e) {
+                console.error("儲存變更失敗: ", e);
+                alert("儲存失敗，請稍後再試。");
+            }
+        }
+
+        // --- 事件監聽 ---
+        loginBtn.addEventListener('click', handleLogin);
+        logoutBtn.addEventListener('click', handleLogout);
+        
+        roleSelector.addEventListener('change', () => {
+            if (roleSelector.value === 'booker') {
+                bookerNameInput.style.display = 'block';
+                icuSelector.style.display = 'none';
+            } else {
+                bookerNameInput.style.display = 'none';
+                icuSelector.style.display = 'block';
+            }
+        });
+
+        newBookingBtn.addEventListener('click', () => { bookingModal.style.display = 'block'; });
+        closeModalBtn.addEventListener('click', () => { bookingModal.style.display = 'none'; });
+        cancelBookingBtn.addEventListener('click', () => { bookingModal.style.display = 'none'; });
+        window.addEventListener('click', (event) => { if (event.target == bookingModal) { bookingModal.style.display = 'none'; } });
+        bookingForm.addEventListener('submit', handleNewBooking);
+        
+        dynamicContent.addEventListener('click', (event) => {
+            if (event.target.id === 'save-changes-btn') {
+                handleSaveChanges();
+            }
+        });
+        
+        // --- Real-time Listener ---
+        onSnapshot(requestsCol, (snapshot) => {
+            requests = [];
+            snapshot.forEach(doc => {
+                requests.push({ ...doc.data(), id: doc.id });
+            });
+            console.log("從 Firebase 即時更新資料:", requests);
+            if (currentUser) {
+                renderDashboard();
+            }
+        });
+    </script>
+</body>
+</html>
+
